@@ -14,10 +14,21 @@ async function change(env, edit){
 function json(data,status=200){return Response.json(data,{status,headers:{'Cache-Control':'no-store'}});}
 async function handle(request,env){
   const url=new URL(request.url),path=url.pathname;
+  const owner=request.headers.get('oai-authenticated-user-email')?.toLowerCase()==='torettosavads1@gmail.com';
+  const runner=path==='/api/tick' && env.SCHEDULER_RUN_KEY && request.headers.get('X-Run-Token')===env.SCHEDULER_RUN_KEY;
+  if(!owner && !runner){
+    if(request.method==='GET' && ['/', '/facebook','/facebook/callback'].includes(path) && !request.headers.has('oai-authenticated-user-id'))
+      return Response.redirect(url.origin+'/signin-with-chatgpt?return_to='+encodeURIComponent(url.pathname+url.search),302);
+    return json({error:'Owner sign-in required'},403);
+  }
   if(request.method==='GET' && path==='/')return new Response(PAGE,{headers:{'Content-Type':'text/html; charset=utf-8'}});
   if(!env.BUCKET)return json({error:'Queue storage is unavailable'},503);
+  if(path==='/facebook'||path.startsWith('/facebook/'))return facebookRoute(request,env,url);
+  const page=await readPrivate(env,'page');
+  const fbEnv=page?{META_TOKEN:page.token,FACEBOOK_PAGE_ID:page.id,META_GRAPH_VERSION:page.version}:env;
+  const providerEnv=c=>c==='facebook'?fbEnv:env;
   const channels=['facebook','instagram','x'];
-  if(request.method==='GET' && path==='/api/posts')return json({posts:(await snapshot(env)).rows.sort((a,b)=>a.due-b.due),configured:channels.filter(c=>configured(c,env))});
+  if(request.method==='GET' && path==='/api/posts')return json({posts:(await snapshot(env)).rows.sort((a,b)=>a.due-b.due),configured:channels.filter(c=>configured(c,providerEnv(c)))});
   if(request.headers.has('Origin') && request.headers.get('Origin')!==url.origin)return json({error:'Origin mismatch'},403);
   if(request.method==='POST' && path==='/api/posts'){
     if(!request.headers.get('content-type')?.startsWith('application/json'))return json({error:'JSON required'},415);
@@ -35,11 +46,11 @@ async function handle(request,env){
   }
   if(request.method==='POST' && path==='/api/tick'){
     if(request.headers.get('X-Scheduler-Run')!=='due')return json({error:'Run header required'},400);
-    const eligible=(await snapshot(env)).rows.some(p=>p.status==='queued'&&p.due<=Date.now()&&configured(p.channel,env));
+    const eligible=(await snapshot(env)).rows.some(p=>p.status==='queued'&&p.due<=Date.now()&&configured(p.channel,providerEnv(p.channel)));
     if(!eligible)return json({processed:0});
-    const p=await change(env,rows=>{const job=rows.filter(x=>x.status==='queued'&&x.due<=Date.now()&&configured(x.channel,env)).sort((a,b)=>a.due-b.due)[0];if(job)job.status='sending';return job});
+    const p=await change(env,rows=>{const job=rows.filter(x=>x.status==='queued'&&x.due<=Date.now()&&configured(x.channel,providerEnv(x.channel))).sort((a,b)=>a.due-b.due)[0];if(job)job.status='sending';return job});
     if(!p)return json({processed:0});
-    let status,result;try{result=await publish(p,env);if(!result)throw Error('Missing platform receipt');status='published';}catch(e){status='review';result=e.message;}
+    let status,result;try{result=await publish(p,providerEnv(p.channel));if(!result)throw Error('Missing platform receipt');status='published';}catch(e){status='review';result=e.message;}
     await change(env,rows=>{Object.assign(rows.find(x=>x.id===p.id),{status,result})});return json({processed:1,status});
   }
   return json({error:'Unknown endpoint'},404);
