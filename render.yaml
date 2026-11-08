@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: after-dark-scheduler
+    runtime: node
+    plan: starter
+    buildCommand: npm test
+    startCommand: npm start
+    disk:
+      name: scheduler-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: NODE_VERSION
+        value: "24"
+      - key: HOST
+        value: 0.0.0.0
+      - key: DATA_DIR
+        value: /var/data
+      - key: SCHEDULER_KEY
+        generateValue: true
