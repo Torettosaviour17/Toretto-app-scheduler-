@@ -16,9 +16,14 @@ async function handle(request,env){
   const url=new URL(request.url),path=url.pathname;
   const owner=request.headers.get('oai-authenticated-user-email')?.toLowerCase()==='torettosavads1@gmail.com';
   const runner=path==='/api/tick' && env.SCHEDULER_RUN_KEY && request.headers.get('X-Run-Token')===env.SCHEDULER_RUN_KEY;
-  if(!owner && !runner){
+  const queueRequest = path === '/api/posts' && ['GET','POST'].includes(request.method);
+  const chatPlanner = queueRequest && !request.headers.has('Origin') && env.SCHEDULER_RUN_KEY &&
+    request.headers.get('X-Planner-Token') === env.SCHEDULER_RUN_KEY;
+  if(!owner && !runner && !chatPlanner){
     if(request.method==='GET' && ['/', '/facebook','/facebook/callback'].includes(path) && !request.headers.has('oai-authenticated-user-id'))
       return Response.redirect(url.origin+'/signin-with-chatgpt?return_to='+encodeURIComponent(url.pathname+url.search),302);
+    if(request.method==='GET' && ['/', '/facebook','/facebook/callback'].includes(path))
+      return new Response('<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>Switch account</title><main style="max-width:32rem;margin:12vh auto;padding:20px;font:18px/1.5 system-ui"><h1>Switch ChatGPT account</h1><p>This account does not own After Dark Scheduler. Use the ChatGPT account that created this planner.</p><a href="/signout-with-chatgpt?return_to=%2Ffacebook">Use a different account</a></main>',{status:403,headers:{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store'}});
     return json({error:'Owner sign-in required'},403);
   }
   if(request.method==='GET' && path==='/')return new Response(PAGE,{headers:{'Content-Type':'text/html; charset=utf-8'}});
