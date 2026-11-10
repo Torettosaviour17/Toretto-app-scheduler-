@@ -1,3 +1,14 @@
+function chooseFacebookPage(pages){
+  const candidates=pages.filter(p=>p.name?.trim().toLowerCase()==='code after dark');
+  const page=pages.find(p=>p.id===targetPage) || (candidates.length===1?candidates[0]:null);
+  if(!page){
+    const names=pages.map(p=>p.name).filter(Boolean).join(', ');
+    return {error: candidates.length>1?'More than one Page named Code After Dark was returned. Approve only the intended Page and reconnect.':'Facebook returned '+(names||'no Pages')+'. Reconnect and select Code After Dark.'};
+  }
+  if(!page.access_token)return {error:'Facebook returned Code After Dark without a Page token. Reconnect with Page publishing access.'};
+  if(!page.tasks?.some(t=>['CREATE_CONTENT','MANAGE','PROFILE_PLUS_CREATE_CONTENT'].includes(t)))return {error:'Your Facebook profile needs content access to Code After Dark. Facebook returned these Page tasks: '+(page.tasks?.join(', ')||'none')+'. Check Page access, then reconnect.'};
+  return {page};
+}
 const targetPage='1308783775658337';
 const callback='/facebook/callback';
 const enc=new TextEncoder();
@@ -54,10 +65,19 @@ async function facebookRoute(req,env,url){
     const exchange=async(params)=>{const r=await fetch(base+'/oauth/access_token',{method:'POST',body:new URLSearchParams({client_id:c.appId,client_secret:c.secret,...params})});const b=await r.json();if(!r.ok||!b.access_token)throw Error('Facebook token exchange failed. Check app settings and redirect URI.');return b.access_token};
     const token=await exchange({code,redirect_uri:url.origin+callback});
     const long=await exchange({grant_type:'fb_exchange_token',fb_exchange_token:token});
-    const res=await fetch(base+'/me/accounts?fields=id,name,access_token,tasks&limit=100',{headers:{Authorization:'Bearer '+long}});
-    const p=(await res.json()).data?.find(row=>row.id===targetPage);
-    if(!p?.access_token || !p.tasks?.some(t=>['CREATE_CONTENT','MANAGE'].includes(t)))return info('Code After Dark was not authorized for publishing. Open /facebook and select that Page with content access.',403);
-    await storePrivate(env,'page',{token:p.access_token,id:p.id,version:c.version});
+    const headers={Authorization:'Bearer '+long};
+    const permissionResponse=await fetch(base+'/me/permissions',{headers});
+    const permissions=await permissionResponse.json();
+    if(!permissionResponse.ok)return info('Facebook could not confirm permissions. Reconnect and try again.',403);
+    const missing=['pages_show_list','pages_read_engagement','pages_manage_posts'].filter(name=>!permissions.data?.some(p=>p.permission===name&&p.status==='granted'));
+    if(missing.length)return info('Facebook did not grant: '+missing.join(', ')+'. Open /facebook and approve these permissions for Code After Dark.',403);
+    const res=await fetch(base+'/me/accounts?fields=id,name,access_token,tasks&limit=100',{headers});
+    const pageResult=await res.json();
+    if(!res.ok)return info('Facebook could not list your Pages. Error '+(Number(pageResult.error?.code)||res.status)+'. Check Page access and reconnect.',403);
+    const selected=chooseFacebookPage(pageResult.data||[]);
+    if(selected.error)return info(selected.error,403);
+    const p=selected.page;
+    await storePrivate(env,'page',{token:p.access_token,id:p.id,name:p.name,version:c.version});
     return new Response(null,{status:303,headers:{Location:'/','Set-Cookie':'__Host-fbstate=; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=Lax','Referrer-Policy':'no-referrer'}});
   }
   return info('Unknown route',404);
