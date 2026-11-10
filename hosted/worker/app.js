@@ -36,7 +36,7 @@ async function handle(request,env){
   const fbEnv=page?{META_TOKEN:page.token,FACEBOOK_PAGE_ID:page.id,META_GRAPH_VERSION:page.version}:env;
   const providerEnv=c=>c==='facebook'?fbEnv:env;
   const channels=['facebook','instagram','x'];
-  if(request.method==='GET' && path==='/api/posts')return json({posts:(await snapshot(env)).rows.sort((a,b)=>a.due-b.due),configured:channels.filter(c=>configured(c,providerEnv(c)))});
+  if(request.method==='GET' && path==='/api/posts')return json({posts:(await snapshot(env)).rows.sort((a,b)=>a.due-b.due),configured:channels.filter(c=>configured(c,providerEnv(c))),facebookDiagnostic:await readPrivate(env,'diagnostic')});
   if(request.headers.has('Origin') && request.headers.get('Origin')!==url.origin)return json({error:'Origin mismatch'},403);
   if(request.method==='POST' && path==='/api/posts'){
     if(!request.headers.get('content-type')?.startsWith('application/json'))return json({error:'JSON required'},415);
