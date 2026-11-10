@@ -13,7 +13,10 @@ async function change(env, edit){
 }
 function json(data,status=200){return Response.json(data,{status,headers:{'Cache-Control':'no-store'}});}
 async function handle(request,env){
-  const url=new URL(request.url),path=url.pathname;
+  const url=new URL(request.url);
+  url.protocol='https:';
+  url.host='toretto-post-desk.cloudlesspoppy8.chatgpt.site';
+  const path=url.pathname;
   const owner=request.headers.get('oai-authenticated-user-email')?.toLowerCase()==='torettosavads1@gmail.com';
   const runner=path==='/api/tick' && env.SCHEDULER_RUN_KEY && request.headers.get('X-Run-Token')===env.SCHEDULER_RUN_KEY;
   const queueRequest = path === '/api/posts' && ['GET','POST'].includes(request.method);
